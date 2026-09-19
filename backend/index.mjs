@@ -178,9 +178,15 @@ app.use((error, _request, response, _next) => {
   response.status(500).json({ error: "Internal server error" });
 });
 
-connectMongo()
-  .then(() => app.listen(port, () => console.log(`Forest Biomass API listening on http://localhost:${port}`)))
-  .catch((error) => {
-    console.error("MongoDB connection failed", error);
-    process.exitCode = 1;
-  });
+export default app;
+
+if (!process.env.VERCEL) {
+  connectMongo()
+    .then(() => app.listen(port, () => console.log(`Forest Biomass API listening on http://localhost:${port}`)))
+    .catch((error) => {
+      console.error("MongoDB connection failed", error);
+      process.exitCode = 1;
+    });
+} else {
+  await connectMongo();
+}
