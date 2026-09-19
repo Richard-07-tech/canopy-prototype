@@ -1,0 +1,141 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import 'tailwindcss';
+@import 'leaflet/dist/leaflet.css';
+
+@theme inline {
+  --color-background: #EEF2F4;
+  --color-foreground: #17232D;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #17232D;
+  --color-primary: #355C73;
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: #5F7787;
+  --color-secondary-foreground: #FFFFFF;
+  --color-muted: #E4EBEF;
+  --color-muted-foreground: #60717E;
+  --color-accent: #6F9F86;
+  --color-accent-foreground: #FFFFFF;
+  --color-border: #CCD6DD;
+  --color-ring: #355C73;
+  --color-status: #4E8068;
+  --color-status-bg: #E5F0EA;
+  --color-chart-low: #315B78;
+  --color-chart-mid: #6F9F86;
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body: 'Work Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Leaflet overrides */
+.leaflet-container {
+  background: #DCE5E9 !important;
+  font-family: var(--font-body) !important;
+  height: 100%;
+  width: 100%;
+}
+
+.leaflet-control-zoom {
+  border: none !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12) !important;
+}
+
+.leaflet-control-zoom a {
+  background: white !important;
+  color: var(--color-foreground) !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+.leaflet-control-zoom a:hover {
+  background: var(--color-muted) !important;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 2px;
+}
+
+/* Biomass heatmap canvas */
+.biomass-canvas {
+  pointer-events: none;
+  display: block;
+}
+
+.biomass-legend {
+  width: 186px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(23, 35, 45, 0.86);
+  box-shadow: 0 4px 14px rgba(15, 29, 38, 0.2);
+  backdrop-filter: blur(8px);
+}
+
+.map-panel {
+  min-width: 0;
+  min-height: 0;
+}
+
+@media (max-width: 860px) {
+  .dashboard-content {
+    overflow: auto;
+    flex-direction: column;
+  }
+
+  .map-panel {
+    min-height: 56vh;
+    flex: 0 0 56vh;
+  }
+
+  .dashboard-content aside {
+    width: 100%;
+    min-width: 0;
+    flex: 1 0 auto;
+    max-height: none;
+  }
+}
+
+@media (max-width: 560px) {
+  header {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    gap: 8px !important;
+  }
+
+  header > div:nth-child(3) {
+    display: none;
+  }
+
+  header .min-w-\[220px\] {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .biomass-legend {
+    width: 160px;
+  }
+}
