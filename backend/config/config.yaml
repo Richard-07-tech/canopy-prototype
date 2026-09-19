@@ -1,0 +1,80 @@
+# =====================================================================
+# Biomass Data Acquisition Pipeline — Configuration
+# Edit study_region and date_range; never hard-code them in scripts.
+# =====================================================================
+
+project:
+  name: "forest_biomass_estimation"
+  # Google Earth Engine Cloud Project ID (see README §3).
+  # Leave empty to fall back to the EE_PROJECT environment variable.
+  ee_project: "forest-agb-pipeline"
+
+study_region:
+  name: "nilgiri_western_ghats"         # test region in Western Ghats / Nilgiri Biosphere Reserve
+  # Option A: a geometry file (GeoJSON / Shapefile / GPKG / KML).
+  geometry_file: ""                   # e.g. "config/region.geojson"
+  # Option B: a bounding box  [xmin, ymin, xmax, ymax]  in EPSG:4326.
+  # Used only when geometry_file is empty.
+  bbox: [76.20, 11.20, 76.90, 11.90]   # Western Ghats / Nilgiri expanded bounding box (~3x area)
+
+date_range:
+  start: "2024-01-01"
+  end:   "2024-12-31"
+
+datasets:
+  gedi:
+    enabled: true
+    # Verified catalog id: LARSE/GEDI/GEDI04_A_002 (GEDI L4A footprints, v2.1)
+    product: "LARSE/GEDI/GEDI04_A_002"
+    filters:
+      l4_quality_flag: true           # keep only l4_quality_flag == 1
+      degrade_flag: 0                 # keep only degrade_flag == 0
+      min_sensitivity: 0.9            # beam sensitivity threshold (0.9-0.95 typical)
+      max_agbd: 600                   # Mg/ha sanity cap (tropical forests)
+      solar_elevation_lt0: true       # drop daytime shots (noisier waveforms)
+
+  sentinel1:
+    enabled: true
+    # Verified catalog id: COPERNICUS/S1_GRD (dB, terrain-corrected)
+    product: "COPERNICUS/S1_GRD"
+    instrument_mode: "IW"
+    polarization: ["VV", "VH"]
+    # null = use both orbit directions (direction is recorded in metadata).
+    # Set to "ASCENDING" or "DESCENDING" for a stricter, homogeneous stack.
+    orbit_pass: null
+    export_scale: 10                  # metres
+
+  sentinel2:
+    enabled: true
+    # Verified catalog ids:
+    #   surface reflectance : COPERNICUS/S2_SR_HARMONIZED  (scale factor 10000)
+    #   cloud probability   : GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED (band cs)
+    product: "COPERNICUS/S2_SR_HARMONIZED"
+    cloud_product: "GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED"
+    bands: ["B2", "B3", "B4", "B8", "B11", "B12"]
+    cloud_percentage: 20              # granule-level CLOUDY_PIXEL_PERCENTAGE filter
+    cs_threshold: 0.6                 # pixel-level cloud/shadow mask (cs band >= threshold)
+    export_scale: 10                  # metres
+
+  biomass_reference:
+    enabled: true                     # GEDI L4A monthly raster (visual validation)
+    product: "LARSE/GEDI/GEDI04_A_002_MONTHLY"
+
+  auxiliary:
+    dem: "NASA/NASADEM_HGT/001"       # elevation band (30 m)
+    landcover: "ESA/WorldCover/v200"  # Map band (10 m)
+
+matching:
+  max_days_difference: 30             # configurable temporal window (days)
+  spatial:
+    method: "footprint_mean"          # center_pixel | footprint_mean | footprint_median
+    footprint_diameter_m: 25.0        # GEDI footprint ~25 m diameter
+    fallback_method: "center_pixel"   # used if a window contains no valid pixels
+
+output:
+  root: "./data"
+  format: "geoparquet"                # primary tabular format
+
+quality_control:
+  agb_min: 0                          # Mg/ha — values outside [min, max] are
+  agb_max: 600                        # flagged (not deleted) in the QC report

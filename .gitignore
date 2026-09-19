@@ -1,5 +1,61 @@
+# Node & Frontend dependencies
 node_modules/
 dist/
+frontend/dist/
+.vercel/
+
+# Environment files
 .env
+.env.*
+!.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+
+# Python environments and caches
+__pycache__/
+*.py[cod]
+*.pyd
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Credentials and Keys
+*.json.key
+*.pem
+*.key
+*service-account*.json
+
+# Logs, scratch files, and large raw imagery
+logs/
+backend/logs/*
+scratch/
+backend/scratch/*
+*.tif
+*.tiff
+test_b2.tif
+backend/test_b2.tif
+
+# Geospatial datasets (keep only precomputed grid)
+backend/data/raw/**
+backend/data/processed/*
+!backend/data/processed/agb_grid.parquet
+
+# Machine learning models (keep only final production model v4)
+backend/models/*
+!backend/models/agb_model_final_v4.joblib
+
+# Operating System & IDE
 .DS_Store
-.vercel
+Thumbs.db
+.vscode/
+.idea/
+*.swp

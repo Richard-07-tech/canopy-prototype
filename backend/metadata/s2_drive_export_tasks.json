@@ -1,0 +1,247 @@
+[
+  {
+    "task_id": "NF5IUCJDSZ4WSTMOXDIYL24F",
+    "description": "S2_nilgiri_western_ghats_2024-10-29_B02",
+    "day": "2024-10-29",
+    "band": "B02",
+    "filename": "S2_nilgiri_western_ghats_2024-10-29_B02.tif"
+  },
+  {
+    "task_id": "PDRKFAN6S7IHGJIT5M4ITDXS",
+    "description": "S2_nilgiri_western_ghats_2024-10-29_B03",
+    "day": "2024-10-29",
+    "band": "B03",
+    "filename": "S2_nilgiri_western_ghats_2024-10-29_B03.tif"
+  },
+  {
+    "task_id": "Q4QHERD454IKPCK5FYARIQYG",
+    "description": "S2_nilgiri_western_ghats_2024-10-29_B04",
+    "day": "2024-10-29",
+    "band": "B04",
+    "filename": "S2_nilgiri_western_ghats_2024-10-29_B04.tif"
+  },
+  {
+    "task_id": "6BGXLRBSDEDBHQPPVC347A5E",
+    "description": "S2_nilgiri_western_ghats_2024-10-29_B08",
+    "day": "2024-10-29",
+    "band": "B08",
+    "filename": "S2_nilgiri_western_ghats_2024-10-29_B08.tif"
+  },
+  {
+    "task_id": "RCYH4VLEJHUMWO7VT7NHNJWR",
+    "description": "S2_nilgiri_western_ghats_2024-10-29_B11",
+    "day": "2024-10-29",
+    "band": "B11",
+    "filename": "S2_nilgiri_western_ghats_2024-10-29_B11.tif"
+  },
+  {
+    "task_id": "LVDETG4OUBLJZXQKAVHH5GTH",
+    "description": "S2_nilgiri_western_ghats_2024-10-29_B12",
+    "day": "2024-10-29",
+    "band": "B12",
+    "filename": "S2_nilgiri_western_ghats_2024-10-29_B12.tif"
+  },
+  {
+    "task_id": "5VYJUTYB4ZJKBQ2U6LHAZNKO",
+    "description": "S2_nilgiri_western_ghats_2024-10-29_NDVI",
+    "day": "2024-10-29",
+    "band": "NDVI",
+    "filename": "S2_nilgiri_western_ghats_2024-10-29_NDVI.tif"
+  },
+  {
+    "task_id": "HMIQWRCKLMMIVIFX7REP33JF",
+    "description": "S2_nilgiri_western_ghats_2024-12-06_B02",
+    "day": "2024-12-06",
+    "band": "B02",
+    "filename": "S2_nilgiri_western_ghats_2024-12-06_B02.tif"
+  },
+  {
+    "task_id": "5IVKPQ5MKCMVN2Z76GH2NT2R",
+    "description": "S2_nilgiri_western_ghats_2024-12-06_B03",
+    "day": "2024-12-06",
+    "band": "B03",
+    "filename": "S2_nilgiri_western_ghats_2024-12-06_B03.tif"
+  },
+  {
+    "task_id": "V6VKF3WCN7Q5SPBOTXLD2HYU",
+    "description": "S2_nilgiri_western_ghats_2024-12-06_B04",
+    "day": "2024-12-06",
+    "band": "B04",
+    "filename": "S2_nilgiri_western_ghats_2024-12-06_B04.tif"
+  },
+  {
+    "task_id": "TE7Q6BQQP7CGZ76KH35R6OZC",
+    "description": "S2_nilgiri_western_ghats_2024-12-06_B08",
+    "day": "2024-12-06",
+    "band": "B08",
+    "filename": "S2_nilgiri_western_ghats_2024-12-06_B08.tif"
+  },
+  {
+    "task_id": "TDWDY24HMZZYQKGAL374UMPP",
+    "description": "S2_nilgiri_western_ghats_2024-12-06_B11",
+    "day": "2024-12-06",
+    "band": "B11",
+    "filename": "S2_nilgiri_western_ghats_2024-12-06_B11.tif"
+  },
+  {
+    "task_id": "MPZTYE3JO5QNHQSE53ZRLM4J",
+    "description": "S2_nilgiri_western_ghats_2024-12-06_B12",
+    "day": "2024-12-06",
+    "band": "B12",
+    "filename": "S2_nilgiri_western_ghats_2024-12-06_B12.tif"
+  },
+  {
+    "task_id": "PG6LBNN6I6RO75NAV4DM3C5R",
+    "description": "S2_nilgiri_western_ghats_2024-12-06_NDVI",
+    "day": "2024-12-06",
+    "band": "NDVI",
+    "filename": "S2_nilgiri_western_ghats_2024-12-06_NDVI.tif"
+  },
+  {
+    "task_id": "7DFOOB5GQ3347Q2UYUDAJXMQ",
+    "description": "S2_nilgiri_western_ghats_2024-12-08_B02",
+    "day": "2024-12-08",
+    "band": "B02",
+    "filename": "S2_nilgiri_western_ghats_2024-12-08_B02.tif"
+  },
+  {
+    "task_id": "55Q4ZGLRWQ22X4SM7TFIRO5D",
+    "description": "S2_nilgiri_western_ghats_2024-12-08_B03",
+    "day": "2024-12-08",
+    "band": "B03",
+    "filename": "S2_nilgiri_western_ghats_2024-12-08_B03.tif"
+  },
+  {
+    "task_id": "L3KWCWA5MVMRGVTLW5QJZMZ3",
+    "description": "S2_nilgiri_western_ghats_2024-12-08_B04",
+    "day": "2024-12-08",
+    "band": "B04",
+    "filename": "S2_nilgiri_western_ghats_2024-12-08_B04.tif"
+  },
+  {
+    "task_id": "QMAIOSP64LJOEE67BGM4VPUO",
+    "description": "S2_nilgiri_western_ghats_2024-12-08_B08",
+    "day": "2024-12-08",
+    "band": "B08",
+    "filename": "S2_nilgiri_western_ghats_2024-12-08_B08.tif"
+  },
+  {
+    "task_id": "Y6KDFYDJLKAFSIJ6HFRGRY2V",
+    "description": "S2_nilgiri_western_ghats_2024-12-08_B11",
+    "day": "2024-12-08",
+    "band": "B11",
+    "filename": "S2_nilgiri_western_ghats_2024-12-08_B11.tif"
+  },
+  {
+    "task_id": "OQ477PR3DIMWJL6ZIOBHLXLQ",
+    "description": "S2_nilgiri_western_ghats_2024-12-08_B12",
+    "day": "2024-12-08",
+    "band": "B12",
+    "filename": "S2_nilgiri_western_ghats_2024-12-08_B12.tif"
+  },
+  {
+    "task_id": "TCTDUZ3NRFH45JB5EKCMD7TM",
+    "description": "S2_nilgiri_western_ghats_2024-12-08_NDVI",
+    "day": "2024-12-08",
+    "band": "NDVI",
+    "filename": "S2_nilgiri_western_ghats_2024-12-08_NDVI.tif"
+  },
+  {
+    "task_id": "AGEVTBVM72JXAPJTJJT3NF3Q",
+    "description": "S2_nilgiri_western_ghats_2024-12-16_B02",
+    "day": "2024-12-16",
+    "band": "B02",
+    "filename": "S2_nilgiri_western_ghats_2024-12-16_B02.tif"
+  },
+  {
+    "task_id": "EIFXUHBYJTBKJKY73UY7AAPK",
+    "description": "S2_nilgiri_western_ghats_2024-12-16_B03",
+    "day": "2024-12-16",
+    "band": "B03",
+    "filename": "S2_nilgiri_western_ghats_2024-12-16_B03.tif"
+  },
+  {
+    "task_id": "545HPUUFHU4WK4K7KSR2KEDQ",
+    "description": "S2_nilgiri_western_ghats_2024-12-16_B04",
+    "day": "2024-12-16",
+    "band": "B04",
+    "filename": "S2_nilgiri_western_ghats_2024-12-16_B04.tif"
+  },
+  {
+    "task_id": "WO3GRTFU5TTHIA4ZTVY7HZPM",
+    "description": "S2_nilgiri_western_ghats_2024-12-16_B08",
+    "day": "2024-12-16",
+    "band": "B08",
+    "filename": "S2_nilgiri_western_ghats_2024-12-16_B08.tif"
+  },
+  {
+    "task_id": "MVVQQ2U4HGWVGBN7OZK3EKI7",
+    "description": "S2_nilgiri_western_ghats_2024-12-16_B11",
+    "day": "2024-12-16",
+    "band": "B11",
+    "filename": "S2_nilgiri_western_ghats_2024-12-16_B11.tif"
+  },
+  {
+    "task_id": "LZOQY2QNQ7MIUJFXZ76WR54E",
+    "description": "S2_nilgiri_western_ghats_2024-12-16_B12",
+    "day": "2024-12-16",
+    "band": "B12",
+    "filename": "S2_nilgiri_western_ghats_2024-12-16_B12.tif"
+  },
+  {
+    "task_id": "J7JW63ZWLVU73NK7VW67ZQLL",
+    "description": "S2_nilgiri_western_ghats_2024-12-16_NDVI",
+    "day": "2024-12-16",
+    "band": "NDVI",
+    "filename": "S2_nilgiri_western_ghats_2024-12-16_NDVI.tif"
+  },
+  {
+    "task_id": "6TQAX4ZZXMH5IJJFKD7PO3MH",
+    "description": "S2_nilgiri_western_ghats_2024-12-18_B02",
+    "day": "2024-12-18",
+    "band": "B02",
+    "filename": "S2_nilgiri_western_ghats_2024-12-18_B02.tif"
+  },
+  {
+    "task_id": "BQYZPRI3WPFRUGU3ED7NLFQB",
+    "description": "S2_nilgiri_western_ghats_2024-12-18_B03",
+    "day": "2024-12-18",
+    "band": "B03",
+    "filename": "S2_nilgiri_western_ghats_2024-12-18_B03.tif"
+  },
+  {
+    "task_id": "HCXIQN5ZFN3FWVVYKLKEUHZH",
+    "description": "S2_nilgiri_western_ghats_2024-12-18_B04",
+    "day": "2024-12-18",
+    "band": "B04",
+    "filename": "S2_nilgiri_western_ghats_2024-12-18_B04.tif"
+  },
+  {
+    "task_id": "ANDZ47ED72POVXOMKCZNIK4J",
+    "description": "S2_nilgiri_western_ghats_2024-12-18_B08",
+    "day": "2024-12-18",
+    "band": "B08",
+    "filename": "S2_nilgiri_western_ghats_2024-12-18_B08.tif"
+  },
+  {
+    "task_id": "WFXU7FXC6KKXOGTX75XKVD4R",
+    "description": "S2_nilgiri_western_ghats_2024-12-18_B11",
+    "day": "2024-12-18",
+    "band": "B11",
+    "filename": "S2_nilgiri_western_ghats_2024-12-18_B11.tif"
+  },
+  {
+    "task_id": "KDOHXTE6HQLPKRB6Q7TCEO2Y",
+    "description": "S2_nilgiri_western_ghats_2024-12-18_B12",
+    "day": "2024-12-18",
+    "band": "B12",
+    "filename": "S2_nilgiri_western_ghats_2024-12-18_B12.tif"
+  },
+  {
+    "task_id": "WMPEK4FZWTMTNA55AESSKSDT",
+    "description": "S2_nilgiri_western_ghats_2024-12-18_NDVI",
+    "day": "2024-12-18",
+    "band": "NDVI",
+    "filename": "S2_nilgiri_western_ghats_2024-12-18_NDVI.tif"
+  }
+]

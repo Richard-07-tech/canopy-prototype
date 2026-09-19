@@ -1,0 +1,28 @@
+{
+  "manifest_created_utc": "2026-09-16T14:05:30.902513Z",
+  "acquisitions": [
+    {
+      "dataset": "gedi",
+      "product": "LARSE/GEDI/GEDI04_A_002",
+      "version": "2.1",
+      "study_region": "nilgiri_western_ghats",
+      "date_range": {
+        "start": "2024-01-01",
+        "end": "2024-12-31"
+      },
+      "source": "Google Earth Engine Data Catalog (LARSE/GEDI)",
+      "filters": {
+        "l4_quality_flag": true,
+        "degrade_flag": 0,
+        "min_sensitivity": 0.9,
+        "max_agbd": 600,
+        "solar_elevation_lt0": true
+      },
+      "files": [
+        "data\\raw\\gedi\\gedi_samples.parquet"
+      ],
+      "record_count": 1326,
+      "retrieval_timestamp": "2026-09-16T14:05:30.902513Z"
+    }
+  ]
+}

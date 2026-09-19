@@ -1,0 +1,48 @@
+# Python environments and caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.json.key
+*.pem
+*.key
+*service-account*.json
+
+# Generated logs and scratch outputs
+logs/*
+scratch/*.csv
+scratch/*.json
+scratch/*.log
+scratch/*.parquet
+scratch/*.tif
+test_b2.tif
+
+# Downloaded and regenerated geospatial datasets
+data/raw/**
+data/processed/*
+!data/processed/agb_grid.parquet
+
+# Keep only the production model used by the API.
+models/*
+!models/agb_model_final_v4.joblib
+
+# Keep the precomputed grid available to the local API when it is added to Git.
+# Large raw imagery and training outputs remain excluded above.
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+*.swp

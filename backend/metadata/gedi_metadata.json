@@ -1,0 +1,52 @@
+{
+  "product": "LARSE/GEDI/GEDI04_A_002",
+  "product_name": "GEDI Level 4A Aboveground Biomass Density (footprints)",
+  "product_version": "2.1",
+  "retrieval_date_utc": "2026-09-16T14:05:30.901473Z",
+  "study_region": {
+    "name": "nilgiri_western_ghats",
+    "geometry": "bbox:[76.35, 11.35, 76.75, 11.75]"
+  },
+  "date_range": {
+    "start": "2024-01-01",
+    "end": "2024-12-31"
+  },
+  "raw_observations_in_region": 51150,
+  "retained_after_filtering": 1326,
+  "removed_by_filters": 49824,
+  "filtering_criteria": {
+    "l4_quality_flag": true,
+    "degrade_flag": 0,
+    "min_sensitivity": 0.9,
+    "max_agbd": 600,
+    "solar_elevation_lt0": true
+  },
+  "removed_per_filter": {
+    "l4_quality_flag==1": 47899,
+    "degrade_flag==0": 1436,
+    "sensitivity>=0.9": 0,
+    "agbd<=600.0": 0,
+    "solar_elevation<0": 489
+  },
+  "variables_retrieved": [
+    "shot_number",
+    "agbd",
+    "agbd_se",
+    "l4_quality_flag",
+    "l2_quality_flag",
+    "degrade_flag",
+    "sensitivity",
+    "beam",
+    "channel",
+    "selected_algorithm",
+    "solar_elevation",
+    "elev_lowestmode",
+    "lat_lowestmode",
+    "lon_lowestmode",
+    "predictor_limit_flag",
+    "response_limit_flag",
+    "surface_flag",
+    "delta_time"
+  ],
+  "output_file": "data\\raw\\gedi\\gedi_samples.parquet"
+}

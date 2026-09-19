@@ -1,89 +1,56 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { MapContainer, TileLayer, useMapEvents, useMap } from "react-leaflet";
 import L from "leaflet";
-import { fetchBiomass, fetchPointEstimate, fetchRegions, type BiomassRecord } from "./clientApi";
-// L is used for Marker/DivIcon in SelectedMarker
+import {
+  fetchHealth,
+  fetchAgb,
+  fetchRegionCells,
+  NetworkError,
+  OutsideStudyAreaError,
+  NonForestError,
+  BackendNotReadyError,
+  type HealthResponse,
+  type AgbResponse,
+  type RegionCell,
+  type StudyRegion,
+} from "./clientApi";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-interface Region {
-  id: string;
-  name: string;
-  center: [number, number];
-  zoom: number;
-  area: number;
-  totalCO2e: number;
-  meanAGB: number;
-  samplePoints: number;
-  dateRange: string;
-}
-
-interface SelectedPoint {
-  lat: number;
-  lng: number;
-  agb: number;
-  carbonStock: number;
-  co2e: number;
-  landCover: string;
-}
 
 interface LayerState {
   satellite: boolean;
   biomass: boolean;
-  landCover: boolean;
+  studyBoundary: boolean;
 }
 
-// ─── Mock Data ────────────────────────────────────────────────────────────────
+type SelectionError =
+  | { type: "outside"; message: string }
+  | { type: "non-forest"; message: string; gridLat: number; gridLon: number; distanceM: number }
+  | { type: "backend-not-ready"; message: string }
+  | { type: "network"; message: string };
 
-const REGIONS: Region[] = [
-  {
-    id: "nilgiri",
-    name: "Nilgiri Biosphere Reserve",
-    center: [11.4, 76.6],
-    zoom: 9,
-    area: 12400,
-    totalCO2e: 2310000,
-    meanAGB: 93.4,
-    samplePoints: 1326,
-    dateRange: "Jan 2022 – Dec 2023",
-  },
-  {
-    id: "western-ghats-north",
-    name: "Western Ghats North",
-    center: [15.1, 74.4],
-    zoom: 8,
-    area: 18750,
-    totalCO2e: 3840000,
-    meanAGB: 88.2,
-    samplePoints: 2104,
-    dateRange: "Jan 2022 – Dec 2023",
-  },
-  {
-    id: "agasthyamalai",
-    name: "Agasthyamalai Hills",
-    center: [8.6, 77.2],
-    zoom: 9,
-    area: 7200,
-    totalCO2e: 1190000,
-    meanAGB: 79.6,
-    samplePoints: 894,
-    dateRange: "Mar 2022 – Dec 2023",
-  },
-];
-
-const LAND_COVER_TYPES = [
-  "Tropical Evergreen",
-  "Semi-Evergreen",
-  "Mixed Deciduous",
-  "Shola Forest",
-  "Grassland-Forest Mosaic",
-];
+type BackendStatus = "loading" | "healthy" | "unreachable" | "not-ready";
 
 // ─── Color Scale ──────────────────────────────────────────────────────────────
 
-
 function lerp(a: number, b: number, t: number) {
   return Math.round(a + (b - a) * t);
+}
+
+/**
+ * Restrained environmental palette: slate blue → teal → amber → terracotta.
+ */
+function heatmapRGB(agb: number): [number, number, number] {
+  const t = Math.max(0, Math.min(1, (Number.isFinite(agb) ? agb : 0) / 150));
+  const stops: [number, number, number][] = [[49, 91, 120], [77, 146, 161], [111, 159, 134], [196, 161, 91], [189, 103, 77]];
+  const position = t * (stops.length - 1);
+  const index = Math.min(stops.length - 2, Math.floor(position));
+  const mix = position - index;
+  return [
+    lerp(stops[index][0], stops[index + 1][0], mix),
+    lerp(stops[index][1], stops[index + 1][1], mix),
+    lerp(stops[index][2], stops[index + 1][2], mix),
+  ];
 }
 
 // ─── Components ───────────────────────────────────────────────────────────────
@@ -92,7 +59,7 @@ function ColorScaleLegend() {
   return (
     <div className="biomass-legend">
       <p className="text-[10px] font-medium uppercase tracking-widest text-white/75 mb-2">
-        Biomass availability
+        Biomass density (Mg/ha)
       </p>
       <div
         className="h-3 rounded-full w-full mb-1.5"
@@ -102,8 +69,9 @@ function ColorScaleLegend() {
         }}
       />
       <div className="flex justify-between">
-        <span className="text-[9px] text-white/60 font-mono">Low</span>
-        <span className="text-[9px] text-white/60 font-mono">High</span>
+        <span className="text-[9px] text-white/60 font-mono">0</span>
+        <span className="text-[9px] text-white/60 font-mono">75</span>
+        <span className="text-[9px] text-white/60 font-mono">150+</span>
       </div>
     </div>
   );
@@ -165,11 +133,11 @@ interface LayerToggleProps {
 function LayerToggleControl({ layers, onChange }: LayerToggleProps) {
   const items: { key: keyof LayerState; label: string; color: string }[] = [
     { key: "satellite", label: "Satellite", color: "#6B7280" },
-    { key: "biomass", label: "Biomass", color: "#6f9f86" },
-    { key: "landCover", label: "Land Cover", color: "#92704C" },
+    { key: "biomass", label: "Biomass Heatmap", color: "#6f9f86" },
+    { key: "studyBoundary", label: "Study Area Zone", color: "#10B981" },
   ];
   return (
-    <div className="bg-white/95 backdrop-blur-sm rounded-xl p-3 shadow-lg border border-[var(--color-border)] w-44">
+    <div className="bg-white/95 backdrop-blur-sm rounded-xl p-3 shadow-lg border border-[var(--color-border)] w-48">
       <p className="text-[10px] font-medium uppercase tracking-widest text-[var(--color-muted-foreground)] mb-3">
         Layers
       </p>
@@ -216,179 +184,38 @@ function LayerToggleControl({ layers, onChange }: LayerToggleProps) {
   );
 }
 
-interface RegionDropdownProps {
-  regions: Region[];
-  selected: Region;
-  onChange: (r: Region) => void;
-}
-
-function RegionDropdown({ regions, selected, onChange }: RegionDropdownProps) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 bg-white border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm font-medium text-[var(--color-foreground)] hover:bg-[var(--color-muted)] transition-colors min-w-[220px] justify-between"
-      >
-        <div className="flex items-center gap-2">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-            <circle cx="12" cy="10" r="3" />
-          </svg>
-          <span>{selected.name}</span>
-        </div>
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          className={`transition-transform ${open ? "rotate-180" : ""}`}
-        >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </button>
-      {open && (
-        <div className="absolute top-full mt-1 left-0 bg-white border border-[var(--color-border)] rounded-lg shadow-xl z-50 py-1 min-w-full">
-          {regions.map((r) => (
-            <button
-              key={r.id}
-              onClick={() => {
-                onChange(r);
-                setOpen(false);
-              }}
-              className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
-                r.id === selected.id
-                  ? "bg-[var(--color-muted)] text-[var(--color-primary)] font-medium"
-                  : "text-[var(--color-foreground)] hover:bg-[var(--color-muted)]"
-              }`}
-            >
-              <div className="font-medium">{r.name}</div>
-              <div className="text-xs text-[var(--color-muted-foreground)]">
-                {r.area.toLocaleString()} ha · {r.samplePoints.toLocaleString()} points
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Biomass blob anchors (lat/lng) seeded per region ────────────────────────
-
-type BlobEntry = {
-  lat: number; lng: number; agb: number;
-  rx: number; ry: number; angle: number;
-  intensity: number;
-};
-
-function isValidCoordinate(lat: number, lng: number) {
-  return Number.isFinite(lat) && Number.isFinite(lng) &&
-    lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
-}
-
-function normalizeBiomass(value: unknown, min: number, max: number) {
-  const biomass = typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
-  if (max <= min) return biomass > 0 ? 0.65 : 0;
-  return Math.max(0, Math.min(1, (biomass - min) / (max - min)));
-}
-
-function generateBlobs(region: Region, records: BiomassRecord[] = []): BlobEntry[] {
-  const validRecords = records.filter((record) =>
-    isValidCoordinate(record.latitude, record.longitude) &&
-    Number.isFinite(record.biomassMgHa),
-  );
-  if (validRecords.length) {
-    const values = validRecords.map((record) => Math.max(0, record.biomassMgHa));
-    const sortedValues = [...values].sort((a, b) => a - b);
-    const percentile = (position: number) =>
-      sortedValues[Math.min(sortedValues.length - 1, Math.floor(sortedValues.length * position))] ?? 0;
-    const lowerBound = percentile(0.02);
-    const upperBound = percentile(0.98);
-
-    return validRecords.map((record, index) => {
-      const agb = Math.max(0, record.biomassMgHa);
-      const intensity = normalizeBiomass(agb, lowerBound, Math.max(lowerBound, upperBound));
-      const radius = 0.06 + intensity * 0.14;
-      return {
-        lat: record.latitude,
-        lng: record.longitude,
-        agb,
-        rx: radius,
-        ry: radius * 0.78,
-        angle: (index % 7) * Math.PI / 7,
-        intensity,
-      };
-    });
-  }
-
-  const seed = region.id.charCodeAt(0) * 13 + region.id.charCodeAt(region.id.length - 1) * 7;
-  const [clat, clng] = region.center;
-  const spread = 0.65;
-  const blobs: BlobEntry[] = [];
-  // Dense background blobs
-  for (let i = 0; i < 90; i++) {
-    const agb = 20 + ((Math.sin(seed + i * 7.1) + 1) / 2) * 130;
-    blobs.push({
-      lat:  clat + Math.sin(seed + i * 17.3) * spread,
-      lng:  clng + Math.cos(seed + i * 13.7) * spread,
-      agb,
-      rx:   0.14 + ((Math.cos(seed + i * 5.3) + 1) / 2) * 0.36,
-      ry:   0.10 + ((Math.sin(seed + i * 4.1) + 1) / 2) * 0.30,
-      angle:(Math.sin(seed + i * 9) * Math.PI) / 3,
-      intensity: Math.min(agb / 150, 1),
-    });
-  }
-  // A few extreme hotspots
-  for (let i = 0; i < 12; i++) {
-    const agb = 110 + ((Math.cos(seed + i * 3.7) + 1) / 2) * 40;
-    blobs.push({
-      lat:  clat + Math.sin(seed + i * 23.1) * spread * 0.6,
-      lng:  clng + Math.cos(seed + i * 19.9) * spread * 0.6,
-      agb,
-      rx:   0.08 + ((Math.sin(seed + i * 2.9) + 1) / 2) * 0.14,
-      ry:   0.06 + ((Math.cos(seed + i * 3.3) + 1) / 2) * 0.12,
-      angle:(Math.cos(seed + i * 6) * Math.PI) / 4,
-      intensity: Math.min(agb / 150, 1),
-    });
-  }
-  const biomassValues = blobs.map(({ agb }) => agb).filter((value) => Number.isFinite(value) && value >= 0);
-  const sortedBiomass = [...biomassValues].sort((a, b) => a - b);
-  const percentile = (position: number) => sortedBiomass[Math.min(sortedBiomass.length - 1, Math.floor(sortedBiomass.length * position))] ?? 0;
-  const lowerBound = percentile(0.02);
-  const upperBound = percentile(0.98);
-
-  return blobs
-    .filter((blob) => isValidCoordinate(blob.lat, blob.lng))
-    .map((blob) => ({
-      ...blob,
-      intensity: normalizeBiomass(blob.agb, lowerBound, Math.max(lowerBound, upperBound)),
-    }));
-}
-
 // ─── Biomass Heatmap Canvas Overlay ──────────────────────────────────────────
 
 function BiomassHeatmapLayer({
   visible,
-  region,
-  records,
+  cells,
 }: {
   visible: boolean;
-  region: Region;
-  records: BiomassRecord[];
+  cells: RegionCell[];
 }) {
   const map = useMap();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const blobs = useMemo(() => generateBlobs(region, records), [region, records]);
+
+  // Precompute intensity from actual data range
+  const renderData = useMemo(() => {
+    if (!cells.length) return [];
+    const values = cells
+      .map((c) => c.agb_mg_ha)
+      .filter((v): v is number => v !== null && Number.isFinite(v) && v >= 0);
+    if (!values.length) return [];
+    const sorted = [...values].sort((a, b) => a - b);
+    const p02 = sorted[Math.floor(sorted.length * 0.02)] ?? 0;
+    const p98 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.98))] ?? 0;
+    const range = Math.max(p98 - p02, 1);
+
+    return cells
+      .filter((c) => c.agb_mg_ha !== null && Number.isFinite(c.agb_mg_ha))
+      .map((c) => {
+        const agb = Math.max(0, c.agb_mg_ha!);
+        const intensity = Math.max(0, Math.min(1, (agb - p02) / range));
+        return { lat: c.lat, lon: c.lon, agb, intensity };
+      });
+  }, [cells]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -398,64 +225,52 @@ function BiomassHeatmapLayer({
     canvas.height = size.y;
     const ctx = canvas.getContext("2d")!;
     ctx.clearRect(0, 0, size.x, size.y);
+    if (!renderData.length) return;
 
-    // ── Pass 1: wide soft glow for high-intensity blobs ──────────────────────
+    // Grid resolution is ~250m → roughly 0.0022° at this latitude
+    // Use a radius that creates slight overlap for visual continuity
+    const cellRadius = 0.0015;
+
+    // Pass 1: soft glow
     ctx.globalCompositeOperation = "lighter";
-    for (const blob of blobs) {
-      const center = map.latLngToContainerPoint([blob.lat, blob.lng]);
-      const edgeX  = map.latLngToContainerPoint([blob.lat, blob.lng + blob.rx]);
-      const edgeY  = map.latLngToContainerPoint([blob.lat + blob.ry, blob.lng]);
-      const rpx = Math.abs(edgeX.x - center.x);
-      const rpy = Math.abs(edgeY.y - center.y);
-      if (rpx < 2) continue;
-      const maxR = Math.max(rpx, rpy) * (1.25 + blob.intensity * 1.35);
-      const [cr, cg, cb] = heatmapRGB(blob.agb);
-      const glowAlpha = 0.1 + blob.intensity * 0.2;
-      const grad = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, maxR);
-      grad.addColorStop(0,   `rgba(${cr},${cg},${cb},${glowAlpha.toFixed(3)})`);
+    for (const cell of renderData) {
+      const center = map.latLngToContainerPoint([cell.lat, cell.lon]);
+      const edge = map.latLngToContainerPoint([cell.lat, cell.lon + cellRadius * 2.5]);
+      const rpx = Math.abs(edge.x - center.x);
+      if (rpx < 1) continue;
+      const [cr, cg, cb] = heatmapRGB(cell.agb);
+      const glowAlpha = 0.08 + cell.intensity * 0.18;
+      const grad = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, rpx);
+      grad.addColorStop(0, `rgba(${cr},${cg},${cb},${glowAlpha.toFixed(3)})`);
       grad.addColorStop(0.5, `rgba(${cr},${cg},${cb},${(glowAlpha * 0.4).toFixed(3)})`);
-      grad.addColorStop(1,   `rgba(${cr},${cg},${cb},0)`);
-      ctx.save();
-      ctx.translate(center.x, center.y);
-      ctx.rotate(blob.angle);
-      ctx.scale(rpx / Math.max(rpx, rpy), rpy / Math.max(rpx, rpy));
+      grad.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.arc(0, 0, maxR, 0, Math.PI * 2);
+      ctx.arc(center.x, center.y, rpx, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
     }
 
-    // ── Pass 2: sharp core blobs sorted low→high so hot blobs are on top ────
+    // Pass 2: sharp core cells, sorted low→high so hot cells render on top
     ctx.globalCompositeOperation = "source-over";
-    const sorted = [...blobs].sort((a, b) => a.intensity - b.intensity);
-    for (const blob of sorted) {
-      const center = map.latLngToContainerPoint([blob.lat, blob.lng]);
-      const edgeX  = map.latLngToContainerPoint([blob.lat, blob.lng + blob.rx]);
-      const edgeY  = map.latLngToContainerPoint([blob.lat + blob.ry, blob.lng]);
-      const rpx = Math.abs(edgeX.x - center.x);
-      const rpy = Math.abs(edgeY.y - center.y);
-      if (rpx < 2 || rpy < 2) continue;
-      const maxR = Math.max(rpx, rpy);
-      const [cr, cg, cb] = heatmapRGB(blob.agb);
-      const coreAlpha = 0.3 + blob.intensity * 0.62;
-      const grad = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, maxR);
-      grad.addColorStop(0,    `rgba(${cr},${cg},${cb},${coreAlpha.toFixed(3)})`);
-      grad.addColorStop(0.42, `rgba(${cr},${cg},${cb},${(coreAlpha * 0.62).toFixed(3)})`);
-      grad.addColorStop(0.78, `rgba(${cr},${cg},${cb},${(coreAlpha * 0.15).toFixed(3)})`);
-      grad.addColorStop(1,    `rgba(${cr},${cg},${cb},0)`);
-      ctx.save();
-      ctx.translate(center.x, center.y);
-      ctx.rotate(blob.angle);
-      ctx.scale(rpx / maxR, rpy / maxR);
+    const sorted = [...renderData].sort((a, b) => a.intensity - b.intensity);
+    for (const cell of sorted) {
+      const center = map.latLngToContainerPoint([cell.lat, cell.lon]);
+      const edge = map.latLngToContainerPoint([cell.lat, cell.lon + cellRadius]);
+      const rpx = Math.abs(edge.x - center.x);
+      if (rpx < 1) continue;
+      const [cr, cg, cb] = heatmapRGB(cell.agb);
+      const coreAlpha = 0.3 + cell.intensity * 0.55;
+      const grad = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, rpx);
+      grad.addColorStop(0, `rgba(${cr},${cg},${cb},${coreAlpha.toFixed(3)})`);
+      grad.addColorStop(0.5, `rgba(${cr},${cg},${cb},${(coreAlpha * 0.5).toFixed(3)})`);
+      grad.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.arc(0, 0, maxR, 0, Math.PI * 2);
+      ctx.arc(center.x, center.y, rpx, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
     }
     ctx.globalCompositeOperation = "source-over";
-  }, [map, visible, blobs]);
+  }, [map, visible, renderData]);
 
   useEffect(() => {
     if (!visible) {
@@ -463,7 +278,6 @@ function BiomassHeatmapLayer({
       return;
     }
 
-    // Create canvas attached to map container so it isn't affected by pane CSS transforms
     let canvas = canvasRef.current;
     if (!canvas) {
       canvas = document.createElement("canvas");
@@ -494,6 +308,8 @@ function BiomassHeatmapLayer({
   return null;
 }
 
+// ─── Map Utilities ────────────────────────────────────────────────────────────
+
 function MapSizeSync() {
   const map = useMap();
 
@@ -512,125 +328,201 @@ function MapSizeSync() {
   return null;
 }
 
-/**
- * Restrained environmental palette: slate blue → teal → amber → terracotta.
- */
-function heatmapRGB(agb: number): [number, number, number] {
-  const t = Math.max(0, Math.min(1, (Number.isFinite(agb) ? agb : 0) / 150));
-  const stops: [number, number, number][] = [[49, 91, 120], [77, 146, 161], [111, 159, 134], [196, 161, 91], [189, 103, 77]];
-  const position = t * (stops.length - 1);
-  const index = Math.min(stops.length - 2, Math.floor(position));
-  const mix = position - index;
-  return [
-    lerp(stops[index][0], stops[index + 1][0], mix),
-    lerp(stops[index][1], stops[index + 1][1], mix),
-    lerp(stops[index][2], stops[index + 1][2], mix),
-  ];
+/** Fits the map to the study region bounds on mount. */
+function FitStudyRegion({ bounds }: { bounds: StudyRegion }) {
+  const map = useMap();
+  useEffect(() => {
+    map.fitBounds(
+      [
+        [bounds.min_lat, bounds.min_lon],
+        [bounds.max_lat, bounds.max_lon],
+      ],
+      { padding: [20, 20], maxZoom: 12 }
+    );
+  }, [map, bounds]);
+  return null;
 }
 
-// ─── Land Cover Overlay ───────────────────────────────────────────────────────
+const DEFAULT_STUDY_REGION: StudyRegion = {
+  min_lat: 11.20,
+  max_lat: 11.90,
+  min_lon: 76.20,
+  max_lon: 76.90,
+};
 
-// Land-cover anchor points (geo-fixed, like biomass)
-const LAND_COVER_ANCHORS = [
-  { lat: 11.6, lng: 76.2, color: "#4A7C59", r: 0.5 },
-  { lat: 11.1, lng: 76.9, color: "#92704C", r: 0.4 },
-  { lat: 11.8, lng: 77.1, color: "#C5A96B", r: 0.35 },
-  { lat: 10.9, lng: 76.5, color: "#7B9E87", r: 0.45 },
-  { lat: 11.4, lng: 76.4, color: "#5B7FA6", r: 0.38 },
-  { lat: 11.7, lng: 76.7, color: "#4A7C59", r: 0.3 },
-  { lat: 10.8, lng: 77.0, color: "#92704C", r: 0.42 },
-];
-
-function LandCoverLayer({ visible }: { visible: boolean }) {
+/**
+ * Highlights the precomputed data coverage area with an emerald dashed boundary,
+ * subtle illuminated tint, and corner boundary indicators.
+ */
+function StudyAreaHighlight({
+  bounds,
+  visible,
+}: {
+  bounds: StudyRegion;
+  visible: boolean;
+}) {
   const map = useMap();
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  const draw = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !visible) return;
-    const size = map.getSize();
-    canvas.width = size.x;
-    canvas.height = size.y;
-    const ctx = canvas.getContext("2d")!;
-    ctx.clearRect(0, 0, size.x, size.y);
-
-    for (const anchor of LAND_COVER_ANCHORS) {
-      const center = map.latLngToContainerPoint([anchor.lat, anchor.lng]);
-      const edge = map.latLngToContainerPoint([anchor.lat, anchor.lng + anchor.r]);
-      const rpx = Math.abs(edge.x - center.x);
-      if (rpx < 3) continue;
-      const grad = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, rpx);
-      grad.addColorStop(0, anchor.color + "55");
-      grad.addColorStop(0.6, anchor.color + "33");
-      grad.addColorStop(1, anchor.color + "00");
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(center.x, center.y, rpx, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }, [map, visible]);
+  const layerGroupRef = useRef<L.LayerGroup | null>(null);
 
   useEffect(() => {
     if (!visible) {
-      if (canvasRef.current) canvasRef.current.style.display = "none";
+      if (layerGroupRef.current) {
+        layerGroupRef.current.remove();
+        layerGroupRef.current = null;
+      }
       return;
     }
-    let canvas = canvasRef.current;
-    if (!canvas) {
-      canvas = document.createElement("canvas");
-      canvas.style.cssText = "position:absolute;top:0;left:0;pointer-events:none;z-index:451;";
-      const landCoverPane = map.getPane("land-cover-overlay") ?? map.createPane("land-cover-overlay", map.getContainer());
-      landCoverPane.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:451;";
-      landCoverPane.appendChild(canvas);
-      canvasRef.current = canvas;
+
+    if (layerGroupRef.current) {
+      layerGroupRef.current.remove();
     }
-    canvas.style.display = "";
-    draw();
-    map.on("move zoom viewreset moveend zoomend", draw);
+
+    const group = L.layerGroup().addTo(map);
+    layerGroupRef.current = group;
+
+    const latLngBounds: L.LatLngBoundsExpression = [
+      [bounds.min_lat, bounds.min_lon],
+      [bounds.max_lat, bounds.max_lon],
+    ];
+
+    // Main highlight rectangle with glowing emerald dashed border and gentle tint
+    const rect = L.rectangle(latLngBounds, {
+      color: "#059669",
+      weight: 2.5,
+      dashArray: "10, 6",
+      fillColor: "#10B981",
+      fillOpacity: 0.08,
+      interactive: true,
+    });
+
+    rect.bindTooltip(
+      `<div style="font-family: var(--font-body, system-ui); padding: 4px 6px;">
+        <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: #10B981; display: inline-block;"></span>
+          <strong style="color: #34D399; font-size: 12px; letter-spacing: 0.5px;">ACTIVE STUDY REGION</strong>
+        </div>
+        <div style="font-size: 11px; color: #E2E8F0; font-weight: 500;">Nilgiri Biosphere Reserve</div>
+        <div style="font-family: monospace; font-size: 10px; color: #94A3B8; margin-top: 2px;">
+          ${bounds.min_lat.toFixed(2)}°–${bounds.max_lat.toFixed(2)}°N · ${bounds.min_lon.toFixed(2)}°–${bounds.max_lon.toFixed(2)}°E
+        </div>
+        <div style="font-size: 10px; color: #6EE7B7; margin-top: 4px;">
+          ✓ Click inside for live AGB & carbon estimation
+        </div>
+      </div>`,
+      { sticky: true, className: "study-area-tooltip", direction: "top" }
+    );
+
+    rect.addTo(group);
+
+    // 4 Corner boundary pins for high-precision geospatial aesthetic
+    const corners = [
+      { lat: bounds.max_lat, lon: bounds.min_lon, label: `NW (${bounds.max_lat}°N, ${bounds.min_lon}°E)` },
+      { lat: bounds.max_lat, lon: bounds.max_lon, label: `NE (${bounds.max_lat}°N, ${bounds.max_lon}°E)` },
+      { lat: bounds.min_lat, lon: bounds.min_lon, label: `SW (${bounds.min_lat}°N, ${bounds.min_lon}°E)` },
+      { lat: bounds.min_lat, lon: bounds.max_lon, label: `SE (${bounds.min_lat}°N, ${bounds.max_lon}°E)` },
+    ];
+
+    corners.forEach((c) => {
+      const marker = L.circleMarker([c.lat, c.lon], {
+        radius: 4,
+        color: "#059669",
+        weight: 2,
+        fillColor: "#FFFFFF",
+        fillOpacity: 1,
+      });
+      marker.bindTooltip(c.label, { permanent: false, direction: "auto", className: "corner-tooltip" });
+      marker.addTo(group);
+    });
+
     return () => {
-      map.off("move zoom viewreset moveend zoomend", draw);
+      group.remove();
+      layerGroupRef.current = null;
     };
-  }, [map, visible, draw]);
+  }, [map, bounds, visible]);
 
-  useEffect(() => () => { canvasRef.current?.remove(); canvasRef.current = null; }, []);
+  return null;
+}
 
+/** Smoothly flies to the study area when triggered */
+function MapFlyTo({
+  trigger,
+  bounds,
+}: {
+  trigger: number;
+  bounds: StudyRegion | null;
+}) {
+  const map = useMap();
+  useEffect(() => {
+    if (trigger > 0 && bounds) {
+      map.flyToBounds(
+        [
+          [bounds.min_lat, bounds.min_lon],
+          [bounds.max_lat, bounds.max_lon],
+        ],
+        { padding: [40, 40], duration: 1.0, maxZoom: 11 }
+      );
+    }
+  }, [map, trigger, bounds]);
   return null;
 }
 
 // ─── Map Click Handler ────────────────────────────────────────────────────────
 
 function MapClickHandler({
-  regionId,
-  onSelect,
+  studyRegion,
+  onResult,
+  onError,
+  onLoading,
 }: {
-  regionId: string;
-  onSelect: (p: SelectedPoint) => void;
+  studyRegion: StudyRegion | null;
+  onResult: (data: AgbResponse, clickLat: number, clickLon: number) => void;
+  onError: (error: SelectionError) => void;
+  onLoading: (loading: boolean) => void;
 }) {
   useMapEvents({
     async click(e) {
-      const { lat, lng } = e.latlng;
-      const agb =
-        40 +
-        Math.abs(Math.sin(lat * 100 + lng * 73)) * 100 +
-        Math.abs(Math.cos(lat * 53 + lng * 97)) * 20;
-      const carbonStock = agb * 0.47;
-      const co2e = carbonStock * 3.67;
-      const landCover =
-        LAND_COVER_TYPES[
-          Math.floor(Math.abs(Math.sin(lat + lng) * LAND_COVER_TYPES.length))
-        ];
-      const fallbackPoint = {
-        lat: +lat.toFixed(5),
-        lng: +lng.toFixed(5),
-        agb: +agb.toFixed(1),
-        carbonStock: +carbonStock.toFixed(1),
-        co2e: +co2e.toFixed(1),
-        landCover,
-      };
+      const { lat, lng: lon } = e.latlng;
+
+      // Client-side bounds check
+      if (studyRegion) {
+        if (
+          lat < studyRegion.min_lat ||
+          lat > studyRegion.max_lat ||
+          lon < studyRegion.min_lon ||
+          lon > studyRegion.max_lon
+        ) {
+          onError({
+            type: "outside",
+            message: `Clicked point (${lat.toFixed(4)}°N, ${lon.toFixed(4)}°E) is outside the study area (${studyRegion.min_lat}–${studyRegion.max_lat}°N, ${studyRegion.min_lon}–${studyRegion.max_lon}°E). No data available.`,
+          });
+          return;
+        }
+      }
+
+      onLoading(true);
       try {
-        onSelect(await fetchPointEstimate(regionId, lat, lng));
-      } catch {
-        onSelect(fallbackPoint);
+        const data = await fetchAgb(lat, lon);
+        onResult(data, lat, lon);
+      } catch (err) {
+        if (err instanceof OutsideStudyAreaError) {
+          onError({ type: "outside", message: err.message });
+        } else if (err instanceof NonForestError) {
+          onError({
+            type: "non-forest",
+            message: err.message,
+            gridLat: err.gridCellLat,
+            gridLon: err.gridCellLon,
+            distanceM: err.distanceToCellM,
+          });
+        } else if (err instanceof BackendNotReadyError) {
+          onError({ type: "backend-not-ready", message: err.message });
+        } else if (err instanceof NetworkError) {
+          onError({ type: "network", message: err.message });
+        } else {
+          onError({ type: "network", message: String(err) });
+        }
+      } finally {
+        onLoading(false);
       }
     },
   });
@@ -639,7 +531,7 @@ function MapClickHandler({
 
 // ─── Selected Point Marker ────────────────────────────────────────────────────
 
-function SelectedMarker({ point }: { point: SelectedPoint | null }) {
+function SelectedMarker({ lat, lon }: { lat: number | null; lon: number | null }) {
   const map = useMap();
   const markerRef = useRef<L.Marker | null>(null);
 
@@ -648,7 +540,7 @@ function SelectedMarker({ point }: { point: SelectedPoint | null }) {
       markerRef.current.remove();
       markerRef.current = null;
     }
-    if (!point) return;
+    if (lat === null || lon === null) return;
 
     const icon = L.divIcon({
       html: `<div style="
@@ -661,195 +553,72 @@ function SelectedMarker({ point }: { point: SelectedPoint | null }) {
       className: "",
     });
 
-    markerRef.current = L.marker([point.lat, point.lng], { icon }).addTo(map);
+    markerRef.current = L.marker([lat, lon], { icon }).addTo(map);
     return () => {
       markerRef.current?.remove();
     };
-  }, [map, point]);
+  }, [map, lat, lon]);
 
   return null;
 }
 
-// ─── Time Comparison ──────────────────────────────────────────────────────────
+// ─── Region Data Loader (fetches /agb/region on viewport change) ──────────────
 
-const TIME_YEARS = [2019, 2020, 2021, 2022, 2023];
-const YEAR_CO2E: Record<number, number> = {
-  2019: 1980000,
-  2020: 2050000,
-  2021: 2140000,
-  2022: 2220000,
-  2023: 2310000,
-};
+function RegionDataLoader({
+  enabled,
+  onData,
+}: {
+  enabled: boolean;
+  onData: (cells: RegionCell[]) => void;
+}) {
+  const map = useMap();
+  const abortRef = useRef<AbortController | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-function TimeComparison() {
-  const [expanded, setExpanded] = useState(false);
-  const [fromYear, setFromYear] = useState(2021);
-  const [toYear, setToYear] = useState(2023);
+  const loadViewport = useCallback(() => {
+    if (!enabled) return;
+    abortRef.current?.abort();
+    const bounds = map.getBounds();
+    const viewport = {
+      minLat: bounds.getSouth(),
+      minLon: bounds.getWest(),
+      maxLat: bounds.getNorth(),
+      maxLon: bounds.getEast(),
+    };
+    fetchRegionCells(viewport, true)
+      .then((res) => onData(res.cells))
+      .catch(() => { /* silently ignore — heatmap just won't update */ });
+  }, [map, enabled, onData]);
 
-  const delta = YEAR_CO2E[toYear] - YEAR_CO2E[fromYear];
-  const pct = ((delta / YEAR_CO2E[fromYear]) * 100).toFixed(1);
-  const positive = delta >= 0;
+  // Debounced load on viewport change
+  const debouncedLoad = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(loadViewport, 400);
+  }, [loadViewport]);
 
-  return (
-    <div className="border-b border-[var(--color-border)]">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-5 py-3 text-sm font-medium text-[var(--color-foreground)] hover:bg-[var(--color-muted)] transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <polyline points="12 6 12 12 16 14" />
-          </svg>
-          <span>Time Comparison</span>
-        </div>
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          className={`transition-transform ${expanded ? "rotate-180" : ""}`}
-        >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </button>
+  useEffect(() => {
+    if (!enabled) return;
+    loadViewport(); // initial load
+    map.on("moveend zoomend", debouncedLoad);
+    return () => {
+      map.off("moveend zoomend", debouncedLoad);
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [map, enabled, loadViewport, debouncedLoad]);
 
-      {expanded && (
-        <div className="px-5 pb-4 bg-[var(--color-muted)]/40">
-          <div className="flex items-center gap-3 mb-4 mt-2">
-            <div className="flex-1">
-              <label className="text-[10px] uppercase tracking-widest text-[var(--color-muted-foreground)] block mb-1">
-                From
-              </label>
-              <select
-                value={fromYear}
-                onChange={(e) => setFromYear(+e.target.value)}
-                className="w-full text-sm bg-white border border-[var(--color-border)] rounded-lg px-2 py-1.5 text-[var(--color-foreground)]"
-              >
-                {TIME_YEARS.filter((y) => y < toYear).map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className="mt-5 text-[var(--color-muted-foreground)]"
-            >
-              <path d="M5 12h14M12 5l7 7-7 7" />
-            </svg>
-            <div className="flex-1">
-              <label className="text-[10px] uppercase tracking-widest text-[var(--color-muted-foreground)] block mb-1">
-                To
-              </label>
-              <select
-                value={toYear}
-                onChange={(e) => setToYear(+e.target.value)}
-                className="w-full text-sm bg-white border border-[var(--color-border)] rounded-lg px-2 py-1.5 text-[var(--color-foreground)]"
-              >
-                {TIME_YEARS.filter((y) => y > fromYear).map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Delta bar */}
-          <div className="bg-white rounded-xl p-4 border border-[var(--color-border)]">
-            <p className="text-[10px] uppercase tracking-widest text-[var(--color-muted-foreground)] mb-2">
-              CO₂e Change ({fromYear} → {toYear})
-            </p>
-            <div className="flex items-baseline gap-2 mb-3">
-              <span
-                className={`text-2xl font-mono font-medium ${positive ? "text-[var(--color-primary)]" : "text-red-500"}`}
-                style={{ fontFamily: "var(--font-mono)" }}
-              >
-                {positive ? "+" : ""}
-                {(delta / 1000).toFixed(0)}k
-              </span>
-              <span className="text-xs text-[var(--color-muted-foreground)]">
-                tons CO₂e
-              </span>
-              <span
-                className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full ${
-                  positive
-                    ? "bg-[var(--color-status-bg)] text-[var(--color-status)]"
-                    : "bg-red-50 text-red-600"
-                }`}
-              >
-                {positive ? "+" : ""}
-                {pct}%
-              </span>
-            </div>
-            {/* Progress bar */}
-            <div className="h-1.5 bg-[var(--color-muted)] rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${positive ? "bg-[var(--color-primary)]" : "bg-red-400"}`}
-                style={{ width: `${Math.min(Math.abs(+pct) * 3, 100)}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Year timeline dots */}
-          <div className="mt-3 relative">
-            <div className="absolute top-2 left-0 right-0 h-px bg-[var(--color-border)]" />
-            <div className="flex justify-between relative">
-              {TIME_YEARS.map((y) => {
-                const isFrom = y === fromYear;
-                const isTo = y === toYear;
-                const inRange = y >= fromYear && y <= toYear;
-                return (
-                  <div key={y} className="flex flex-col items-center">
-                    <div
-                      className={`w-3 h-3 rounded-full border-2 z-10 transition-all ${
-                        isFrom || isTo
-                          ? "bg-[var(--color-primary)] border-[var(--color-primary)] scale-110"
-                          : inRange
-                          ? "bg-white border-[var(--color-primary)]"
-                          : "bg-white border-[var(--color-border)]"
-                      }`}
-                    />
-                    <span className="text-[9px] text-[var(--color-muted-foreground)] mt-1">
-                      {y}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  return null;
 }
 
 // ─── Top Bar ──────────────────────────────────────────────────────────────────
 
 function TopBar({
-  region,
-  regions,
-  onRegionChange,
+  health,
+  status,
+  onFocusRegion,
 }: {
-  region: Region;
-  regions: Region[];
-  onRegionChange: (r: Region) => void;
+  health: HealthResponse | null;
+  status: BackendStatus;
+  onFocusRegion?: () => void;
 }) {
   return (
     <header className="h-14 bg-white border-b border-[var(--color-border)] flex items-center px-5 gap-4 shrink-0 z-20">
@@ -879,47 +648,70 @@ function TopBar({
 
       <div className="w-px h-6 bg-[var(--color-border)]" />
 
-      <RegionDropdown
-        regions={regions}
-        selected={region}
-        onChange={onRegionChange}
-      />
-
-      <div className="flex items-center gap-1.5 text-xs text-[var(--color-muted-foreground)] ml-1">
+      {/* Region label with Active Study Area badge */}
+      <button
+        onClick={onFocusRegion}
+        className="flex items-center gap-2 px-2.5 py-1.5 -my-1 rounded-lg hover:bg-slate-100/80 transition-colors text-left cursor-pointer group"
+        title="Click to center map on study area"
+      >
         <svg
-          width="12"
-          height="12"
+          width="14"
+          height="14"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
+          className="text-emerald-600 group-hover:scale-110 transition-transform"
         >
-          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-          <line x1="16" y1="2" x2="16" y2="6" />
-          <line x1="8" y1="2" x2="8" y2="6" />
-          <line x1="3" y1="10" x2="21" y2="10" />
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+          <circle cx="12" cy="10" r="3" />
         </svg>
-        <span>{region.dateRange}</span>
-      </div>
+        <span className="text-sm font-medium text-[var(--color-foreground)]">
+          Nilgiri Biosphere Reserve
+        </span>
+        <span className="text-[10px] font-semibold px-2 py-0.5 bg-emerald-50 text-emerald-800 rounded-full border border-emerald-200 flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          Active Study Area
+        </span>
+      </button>
+
+      {health && (
+        <div className="flex items-center gap-1.5 text-xs text-[var(--color-muted-foreground)] ml-1">
+          <span>·</span>
+          <span>{health.model_version}</span>
+          <span>·</span>
+          <span>{health.grid_resolution_m}m grid</span>
+        </div>
+      )}
 
       <div className="ml-auto flex items-center gap-2">
-        <div className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-[var(--color-muted)] rounded-full text-[var(--color-primary)]">
-          <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] animate-pulse" />
-          Live Data
+        {/* Backend status indicator */}
+        <div
+          className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full ${
+            status === "healthy"
+              ? "bg-[var(--color-status-bg)] text-[var(--color-status)]"
+              : status === "loading"
+              ? "bg-[var(--color-muted)] text-[var(--color-muted-foreground)]"
+              : "bg-red-50 text-red-600"
+          }`}
+        >
+          <div
+            className={`w-1.5 h-1.5 rounded-full ${
+              status === "healthy"
+                ? "bg-[var(--color-accent)] animate-pulse"
+                : status === "loading"
+                ? "bg-[var(--color-muted-foreground)] animate-pulse"
+                : "bg-red-400"
+            }`}
+          />
+          {status === "healthy"
+            ? "Backend Connected"
+            : status === "loading"
+            ? "Connecting…"
+            : status === "unreachable"
+            ? "Backend Unreachable"
+            : "Backend Not Ready"}
         </div>
-        <button className="w-8 h-8 rounded-full bg-[var(--color-muted)] flex items-center justify-center text-[var(--color-muted-foreground)] hover:bg-[var(--color-border)] transition-colors">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <circle cx="12" cy="8" r="4" />
-            <path d="M20 21a8 8 0 1 0-16 0" />
-          </svg>
-        </button>
       </div>
     </header>
   );
@@ -928,21 +720,33 @@ function TopBar({
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 function Sidebar({
-  region,
+  health,
   selected,
+  clickLat,
+  clickLon,
+  selectionError,
   onClearSelection,
-  loading,
+  pointLoading,
+  backendStatus,
+  onFocusRegion,
 }: {
-  region: Region;
-  selected: SelectedPoint | null;
+  health: HealthResponse | null;
+  selected: AgbResponse | null;
+  clickLat: number | null;
+  clickLon: number | null;
+  selectionError: SelectionError | null;
   onClearSelection: () => void;
-  loading: boolean;
+  pointLoading: boolean;
+  backendStatus: BackendStatus;
+  onFocusRegion?: () => void;
 }) {
+  const hasSelection = selected !== null || selectionError !== null;
+
   return (
     <aside className="w-[360px] min-w-[320px] bg-[var(--color-background)] border-l border-[var(--color-border)] flex flex-col overflow-hidden shrink-0">
       {/* Header */}
       <div className="px-5 pt-5 pb-4 border-b border-[var(--color-border)]">
-        {selected ? (
+        {hasSelection ? (
           <div>
             <button
               onClick={onClearSelection}
@@ -964,11 +768,13 @@ function Sidebar({
               className="text-base font-semibold"
               style={{ fontFamily: "var(--font-display)" }}
             >
-              Selected Point
+              {selected ? "Point Detail" : "No Data"}
             </h2>
-            <p className="text-xs text-[var(--color-muted-foreground)] mt-0.5 font-mono">
-              {selected.lat}°N, {selected.lng}°E
-            </p>
+            {clickLat !== null && clickLon !== null && (
+              <p className="text-xs text-[var(--color-muted-foreground)] mt-0.5 font-mono">
+                Clicked: {clickLat.toFixed(5)}°N, {clickLon.toFixed(5)}°E
+              </p>
+            )}
           </div>
         ) : (
           <div>
@@ -979,15 +785,53 @@ function Sidebar({
               Region Overview
             </h2>
             <p className="text-xs text-[var(--color-muted-foreground)] mt-0.5">
-              {region.name}
+              Nilgiri Biosphere Reserve · Western Ghats
             </p>
           </div>
         )}
       </div>
 
-      {/* Stats */}
+      {/* Content */}
       <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-3">
-        {loading ? (
+        {/* Global error states */}
+        {backendStatus === "unreachable" && !hasSelection && (
+          <div className="rounded-xl p-5 border border-red-200 bg-red-50">
+            <div className="flex gap-3">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="2" className="shrink-0 mt-0.5">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="15" y1="9" x2="9" y2="15" />
+                <line x1="9" y1="9" x2="15" y2="15" />
+              </svg>
+              <div>
+                <p className="text-sm font-medium text-red-800">Backend Unreachable</p>
+                <p className="text-xs text-red-600 mt-1">
+                  Cannot reach the API server. Please ensure the FastAPI backend is running.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {backendStatus === "not-ready" && !hasSelection && (
+          <div className="rounded-xl p-5 border border-amber-200 bg-amber-50">
+            <div className="flex gap-3">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" className="shrink-0 mt-0.5">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+              <div>
+                <p className="text-sm font-medium text-amber-800">Backend Data Not Ready</p>
+                <p className="text-xs text-amber-600 mt-1">
+                  The precomputed grid is still loading. Please wait and try again.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Point loading skeleton */}
+        {pointLoading && (
           <div className="flex flex-col gap-3">
             {[...Array(4)].map((_, i) => (
               <div
@@ -999,86 +843,258 @@ function Sidebar({
               </div>
             ))}
           </div>
-        ) : selected ? (
+        )}
+
+        {/* Selection error states */}
+        {!pointLoading && selectionError?.type === "outside" && (
+          <div className="rounded-xl p-5 border border-amber-200 bg-amber-50/90 shadow-2xs">
+            <div className="flex gap-3">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" className="shrink-0 mt-0.5">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                <line x1="9" y1="7" x2="15" y2="13" />
+                <line x1="15" y1="7" x2="9" y2="13" />
+              </svg>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-amber-900">Outside Study Area</p>
+                <p className="text-xs text-amber-800 mt-1.5 leading-relaxed">
+                  {selectionError.message}
+                </p>
+                <div className="mt-3 p-2.5 rounded-lg bg-white/80 border border-amber-200/80 text-xs text-amber-900 leading-relaxed">
+                  💡 Model predictions are only available within the <strong>green dashed Nilgiri study region</strong>.
+                </div>
+                {onFocusRegion && (
+                  <button
+                    onClick={onFocusRegion}
+                    className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm transition-colors cursor-pointer"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+                    </svg>
+                    Focus Study Area
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!pointLoading && selectionError?.type === "non-forest" && (
+          <div className="rounded-xl p-5 border border-amber-200 bg-amber-50/80">
+            <div className="flex gap-3">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#92704C" strokeWidth="2" className="shrink-0 mt-0.5">
+                <path d="M17 8C8 10 5.9 16.17 3.82 22" />
+                <path d="M9.09 9.91C7.17 12.58 5.56 14.16 2 16" />
+                <line x1="4" y1="4" x2="20" y2="20" />
+              </svg>
+              <div>
+                <p className="text-sm font-semibold text-amber-900">Non-Forest Cell</p>
+                <p className="text-xs text-amber-700 mt-1.5 leading-relaxed">
+                  {selectionError.message}
+                </p>
+                <div className="mt-3 flex gap-4">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest text-amber-600">Grid Cell</p>
+                    <p className="text-xs font-mono text-amber-800 mt-0.5">
+                      {selectionError.gridLat.toFixed(5)}°N, {selectionError.gridLon.toFixed(5)}°E
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest text-amber-600">Distance</p>
+                    <p className="text-xs font-mono text-amber-800 mt-0.5">
+                      {selectionError.distanceM.toFixed(0)} m
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!pointLoading && selectionError?.type === "backend-not-ready" && (
+          <div className="rounded-xl p-5 border border-amber-200 bg-amber-50">
+            <p className="text-sm font-medium text-amber-800">Backend Data Not Ready</p>
+            <p className="text-xs text-amber-600 mt-1">{selectionError.message}</p>
+          </div>
+        )}
+
+        {!pointLoading && selectionError?.type === "network" && (
+          <div className="rounded-xl p-5 border border-red-200 bg-red-50">
+            <p className="text-sm font-medium text-red-800">Connection Error</p>
+            <p className="text-xs text-red-600 mt-1">{selectionError.message}</p>
+          </div>
+        )}
+
+        {/* Successful point selection */}
+        {!pointLoading && selected && (
           <>
             <StatCard
               label="AGB"
-              value={selected.agb.toFixed(1)}
+              value={selected.agb_mg_ha.toFixed(2)}
               unit="Mg/ha"
               sub="Above-Ground Biomass"
               highlight={false}
             />
             <StatCard
               label="Carbon Stock"
-              value={selected.carbonStock.toFixed(1)}
+              value={selected.carbon_tons_per_ha.toFixed(2)}
               unit="tons C/ha"
-              sub="Estimated via AGB × 0.47"
+              sub="AGB × 0.47 (server-computed)"
             />
             <StatCard
               label="CO₂ Equivalent"
-              value={selected.co2e.toFixed(1)}
+              value={selected.co2_equivalent_tons_per_ha.toFixed(2)}
               unit="tons CO₂e/ha"
-              sub="Carbon stock × 3.67"
+              sub="Carbon × 3.67 (server-computed)"
               highlight={true}
             />
 
-            {/* Land cover chip */}
+            {/* Canopy & NDVI */}
             <div className="rounded-xl p-4 border border-[var(--color-border)] bg-white">
               <p className="text-xs font-medium uppercase tracking-widest text-[var(--color-muted-foreground)] mb-2">
-                Land Cover Class
+                Canopy Density
               </p>
-              <span className="inline-flex items-center gap-2 text-sm font-medium text-[var(--color-foreground)]">
-                <span className="w-2.5 h-2.5 rounded-full bg-[var(--color-secondary)]" />
-                {selected.landCover}
-              </span>
+              {selected.canopy_density_pct !== null ? (
+                <>
+                  <div className="flex items-baseline gap-2 mb-3">
+                    <span className="font-mono text-2xl font-medium" style={{ fontFamily: "var(--font-mono)" }}>
+                      {selected.canopy_density_pct.toFixed(1)}
+                    </span>
+                    <span className="text-xs text-[var(--color-muted-foreground)]">%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-[var(--color-muted)] overflow-hidden mb-1.5">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-[var(--color-chart-low)] via-[var(--color-chart-mid)] to-[var(--color-primary)]"
+                      style={{ width: `${Math.min(selected.canopy_density_pct, 100)}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-[var(--color-muted-foreground)]">
+                    <span>0%</span>
+                    <span>100%</span>
+                  </div>
+                </>
+              ) : (
+                <span className="text-sm text-[var(--color-muted-foreground)]">—</span>
+              )}
             </div>
 
-            {/* Biomass gauge */}
+            {selected.ndvi_canopy_proxy !== null && (
+              <div className="rounded-xl p-4 border border-[var(--color-border)] bg-white">
+                <p className="text-xs font-medium uppercase tracking-widest text-[var(--color-muted-foreground)] mb-2">
+                  NDVI Canopy Proxy
+                </p>
+                <span className="font-mono text-2xl font-medium" style={{ fontFamily: "var(--font-mono)" }}>
+                  {selected.ndvi_canopy_proxy.toFixed(4)}
+                </span>
+              </div>
+            )}
+
+            {/* Grid cell metadata */}
             <div className="rounded-xl p-4 border border-[var(--color-border)] bg-white">
               <p className="text-xs font-medium uppercase tracking-widest text-[var(--color-muted-foreground)] mb-3">
-                AGB Percentile
+                Matched Grid Cell
+              </p>
+              <div className="flex gap-4">
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-[var(--color-muted-foreground)]">Cell Center</p>
+                  <p className="text-xs font-mono mt-0.5">
+                    {selected.grid_cell_lat.toFixed(5)}°N, {selected.grid_cell_lon.toFixed(5)}°E
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-[var(--color-muted-foreground)]">Distance</p>
+                  <p className="text-xs font-mono mt-0.5">{selected.distance_to_cell_m.toFixed(0)} m</p>
+                </div>
+              </div>
+            </div>
+
+            {/* AGB percentile gauge */}
+            <div className="rounded-xl p-4 border border-[var(--color-border)] bg-white">
+              <p className="text-xs font-medium uppercase tracking-widest text-[var(--color-muted-foreground)] mb-3">
+                AGB Relative Position
               </p>
               <div className="h-2 rounded-full bg-[var(--color-muted)] overflow-hidden mb-1.5">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-[var(--color-chart-low)] via-[var(--color-chart-mid)] to-[var(--color-primary)]"
-                  style={{ width: `${Math.min((selected.agb / 150) * 100, 100)}%` }}
+                  style={{ width: `${Math.min((selected.agb_mg_ha / 250) * 100, 100)}%` }}
                 />
               </div>
               <div className="flex justify-between text-[10px] text-[var(--color-muted-foreground)]">
-                <span>Low</span>
+                <span>0 Mg/ha</span>
                 <span className="text-[var(--color-primary)] font-medium">
-                  {Math.round((selected.agb / 150) * 100)}th pct
+                  {selected.agb_mg_ha.toFixed(1)} Mg/ha
                 </span>
-                <span>High</span>
+                <span>250+</span>
               </div>
             </div>
           </>
-        ) : (
+        )}
+
+        {/* Region overview (no selection) */}
+        {!pointLoading && !hasSelection && health && (
           <>
+            {/* Active Study Area Coverage Card */}
+            <div className="rounded-xl p-4 border border-emerald-200 bg-emerald-50/70">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+                  <span className="text-[11px] font-bold text-emerald-950 uppercase tracking-wider">
+                    Active Study Area
+                  </span>
+                </div>
+                {onFocusRegion && (
+                  <button
+                    onClick={onFocusRegion}
+                    className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-900 flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    Center Map
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M5 12h14M12 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-emerald-900/80 leading-relaxed mb-3">
+                Predictions are trained on high-resolution Sentinel, GEDI, and NASADEM data covering the <strong>Nilgiri Biosphere Reserve</strong>.
+              </p>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-white/90 rounded-lg p-2.5 border border-emerald-100 shadow-2xs">
+                  <span className="text-[10px] uppercase tracking-wider text-emerald-700 block font-semibold">Latitude</span>
+                  <span className="font-mono font-medium text-emerald-950 text-xs">11.20°N – 11.90°N</span>
+                </div>
+                <div className="bg-white/90 rounded-lg p-2.5 border border-emerald-100 shadow-2xs">
+                  <span className="text-[10px] uppercase tracking-wider text-emerald-700 block font-semibold">Longitude</span>
+                  <span className="font-mono font-medium text-emerald-950 text-xs">76.20°E – 76.90°E</span>
+                </div>
+              </div>
+            </div>
+
             <StatCard
-              label="Total Carbon Stored"
-              value={(region.totalCO2e / 1000000).toFixed(2) + "M"}
-              unit="tons CO₂e"
-              sub={`Across ${region.area.toLocaleString()} ha`}
+              label="Mean Forest AGB"
+              value={health.mean_forest_agb_mg_ha.toFixed(1)}
+              unit="Mg/ha"
+              sub="Average across all forest cells"
               highlight={true}
             />
+            {health.mean_forest_canopy_density_pct !== null && (
+              <StatCard
+                label="Mean Canopy Density"
+                value={health.mean_forest_canopy_density_pct.toFixed(1)}
+                unit="%"
+                sub="NDVI-derived canopy proxy"
+              />
+            )}
             <StatCard
-              label="Mean AGB"
-              value={region.meanAGB.toString()}
-              unit="Mg/ha"
-              sub="Above-Ground Biomass"
+              label="Forest Cells"
+              value={health.forest_cells.toLocaleString()}
+              unit="cells"
+              sub={`of ${health.total_cells.toLocaleString()} total grid cells`}
             />
             <StatCard
-              label="Area Covered"
-              value={region.area.toLocaleString()}
-              unit="hectares"
-              sub="Mapped forest boundary"
-            />
-            <StatCard
-              label="Sample Points"
-              value={region.samplePoints.toLocaleString()}
-              unit="points"
-              sub="Ground-truth validation"
+              label="Grid Resolution"
+              value={String(health.grid_resolution_m)}
+              unit="meters"
+              sub="Precomputed cell spacing"
             />
 
             {/* Tip */}
@@ -1098,27 +1114,37 @@ function Sidebar({
                   <line x1="12" y1="16" x2="12.01" y2="16" />
                 </svg>
                 <p className="text-xs text-[var(--color-muted-foreground)] leading-relaxed">
-                  Click any point on the map to view local biomass and carbon
-                  estimates.
+                  Click any point on the map to view local biomass, carbon stock,
+                  and canopy density from the precomputed grid.
                 </p>
               </div>
             </div>
           </>
         )}
-      </div>
 
-      {/* Time comparison */}
-      <div className="border-t border-[var(--color-border)]">
-        <TimeComparison />
+        {/* No health data and no error — still loading */}
+        {!pointLoading && !hasSelection && !health && backendStatus === "loading" && (
+          <div className="flex flex-col gap-3">
+            {[...Array(4)].map((_, i) => (
+              <div
+                key={i}
+                className="rounded-xl p-5 border border-[var(--color-border)] bg-white animate-pulse"
+              >
+                <div className="h-2.5 bg-[var(--color-muted)] rounded w-24 mb-4" />
+                <div className="h-8 bg-[var(--color-muted)] rounded w-32" />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Footer */}
       <div className="px-5 py-3 border-t border-[var(--color-border)] flex items-center justify-between">
         <span className="text-[10px] text-[var(--color-muted-foreground)]">
-          Satellite data: ESA Sentinel-2
+          Data: Sentinel-2 · Sentinel-1 · GEDI L4A
         </span>
         <span className="text-[10px] text-[var(--color-muted-foreground)]">
-          Model: Random Forest v2.3
+          {health ? `Model: ${health.model_version}` : ""}
         </span>
       </div>
     </aside>
@@ -1127,81 +1153,117 @@ function Sidebar({
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
+// Default center for the study region (used before health data loads)
+const DEFAULT_CENTER: [number, number] = [11.55, 76.55];
+const DEFAULT_ZOOM = 10;
+
 export default function App() {
-  const [regions, setRegions] = useState(REGIONS);
-  const [region, setRegion] = useState(REGIONS[0]);
-  const [biomassByRegion, setBiomassByRegion] = useState<Record<string, BiomassRecord[]>>({});
-  const [selected, setSelected] = useState<SelectedPoint | null>(null);
-  const [loading, setLoading] = useState(false);
+  // Backend state
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>("loading");
+
+  // Map & selection state
+  const [selected, setSelected] = useState<AgbResponse | null>(null);
+  const [clickLat, setClickLat] = useState<number | null>(null);
+  const [clickLon, setClickLon] = useState<number | null>(null);
+  const [selectionError, setSelectionError] = useState<SelectionError | null>(null);
+  const [pointLoading, setPointLoading] = useState(false);
+  const [regionCells, setRegionCells] = useState<RegionCell[]>([]);
+
   const [layers, setLayers] = useState<LayerState>({
     satellite: true,
     biomass: true,
-    landCover: false,
+    studyBoundary: true,
   });
-  const [drawMode, setDrawMode] = useState(false);
 
+  const [focusTrigger, setFocusTrigger] = useState(0);
+
+  const handleFocusRegion = useCallback(() => {
+    setFocusTrigger((c) => c + 1);
+  }, []);
+
+  // Fetch health on mount
   useEffect(() => {
     let active = true;
-    fetchRegions<Region>()
-      .then((apiRegions) => {
-        if (!active || !apiRegions.length) return;
-        setRegions(apiRegions);
-        setRegion((current) => apiRegions.find((item) => item.id === current.id) ?? apiRegions[0]);
+    setBackendStatus("loading");
+    fetchHealth()
+      .then((data) => {
+        if (!active) return;
+        setHealth(data);
+        setBackendStatus("healthy");
       })
-      .catch(() => undefined);
+      .catch((err) => {
+        if (!active) return;
+        if (err instanceof NetworkError) {
+          setBackendStatus("unreachable");
+        } else if (err instanceof BackendNotReadyError) {
+          setBackendStatus("not-ready");
+        } else {
+          setBackendStatus("unreachable");
+        }
+      });
     return () => {
       active = false;
     };
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    fetchBiomass(region.id)
-      .then((records) => {
-        if (!active) return;
-        setBiomassByRegion((current) => ({ ...current, [region.id]: records }));
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [region.id]);
+  const handleResult = useCallback((data: AgbResponse, lat: number, lon: number) => {
+    setSelected(data);
+    setClickLat(lat);
+    setClickLon(lon);
+    setSelectionError(null);
+  }, []);
 
-  const handleRegionChange = useCallback((r: Region) => {
+  const handleError = useCallback((error: SelectionError) => {
     setSelected(null);
-    setRegion(r);
+    setSelectionError(error);
+  }, []);
+
+  const handleClearSelection = useCallback(() => {
+    setSelected(null);
+    setClickLat(null);
+    setClickLon(null);
+    setSelectionError(null);
   }, []);
 
   const handleLayerToggle = useCallback((key: keyof LayerState) => {
     setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
+  const handleRegionData = useCallback((cells: RegionCell[]) => {
+    setRegionCells(cells);
+  }, []);
+
+  const studyRegion = health?.study_region ?? null;
+  const activeRegionBounds = studyRegion ?? DEFAULT_STUDY_REGION;
+
   return (
     <div
       className="h-screen flex flex-col overflow-hidden"
       style={{ background: "var(--color-background)" }}
     >
-      <TopBar
-        region={region}
-        regions={regions}
-        onRegionChange={handleRegionChange}
-      />
+      <TopBar health={health} status={backendStatus} onFocusRegion={handleFocusRegion} />
 
       <div className="dashboard-content flex flex-1 overflow-hidden">
         {/* Map panel */}
         <div className="map-panel flex-1 relative">
           <MapContainer
-            key={region.id}
-            center={region.center}
-            zoom={region.zoom}
+            center={DEFAULT_CENTER}
+            zoom={DEFAULT_ZOOM}
             className="w-full h-full"
             zoomControl={true}
           >
             <MapSizeSync />
+            {studyRegion && <FitStudyRegion bounds={studyRegion} />}
+            <StudyAreaHighlight
+              bounds={activeRegionBounds}
+              visible={layers.studyBoundary}
+            />
+            <MapFlyTo
+              trigger={focusTrigger}
+              bounds={activeRegionBounds}
+            />
+
             {/* Base tile */}
             {layers.satellite ? (
               <TileLayer
@@ -1219,54 +1281,59 @@ export default function App() {
 
             <BiomassHeatmapLayer
               visible={layers.biomass}
-              region={region}
-              records={biomassByRegion[region.id] ?? []}
+              cells={regionCells}
             />
-            <LandCoverLayer visible={layers.landCover} />
-            <MapClickHandler regionId={region.id} onSelect={setSelected} />
-            <SelectedMarker point={selected} />
+            <RegionDataLoader
+              enabled={layers.biomass && backendStatus === "healthy"}
+              onData={handleRegionData}
+            />
+            <MapClickHandler
+              studyRegion={studyRegion}
+              onResult={handleResult}
+              onError={handleError}
+              onLoading={setPointLoading}
+            />
+            <SelectedMarker
+              lat={selected ? selected.grid_cell_lat : null}
+              lon={selected ? selected.grid_cell_lon : null}
+            />
           </MapContainer>
 
-          {/* Loading overlay */}
-          {loading && (
-            <div className="absolute inset-0 bg-white/60 backdrop-blur-sm flex items-center justify-center z-[1000]">
-              <div className="bg-white rounded-2xl px-8 py-6 shadow-2xl border border-[var(--color-border)] flex flex-col items-center gap-3">
-                <div className="w-8 h-8 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
-                <p className="text-sm font-medium text-[var(--color-foreground)]">
-                  Loading biomass data…
-                </p>
-                <p className="text-xs text-[var(--color-muted-foreground)]">
-                  Fetching satellite tiles
-                </p>
-              </div>
+          {/* Floating Study Area Banner — top left (beside Leaflet zoom controls) */}
+          <div className="absolute top-3 left-14 z-[10] flex items-center gap-2.5 bg-white/95 backdrop-blur-md px-3.5 py-2 rounded-xl shadow-lg border border-emerald-200/90 pointer-events-auto">
+            <div className="relative flex items-center justify-center">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+              <span className="absolute w-4 h-4 rounded-full bg-emerald-400/40 animate-ping" />
             </div>
-          )}
-
-          {/* Layer toggle — top right */}
-          <div className="absolute top-3 right-3 z-[1000] flex flex-col gap-2">
-            <LayerToggleControl layers={layers} onChange={handleLayerToggle} />
-
-            {/* Draw tool */}
+            <div className="flex flex-col">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-semibold text-slate-800">
+                  Nilgiri Study Area
+                </span>
+                <span className="text-[9px] font-bold px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded">
+                  DATA READY
+                </span>
+              </div>
+              <span className="text-[10px] text-slate-500 font-mono">
+                11.20°–11.90°N · 76.20°–76.90°E
+              </span>
+            </div>
             <button
-              onClick={() => setDrawMode(!drawMode)}
-              className={`bg-white/95 backdrop-blur-sm rounded-lg p-2.5 shadow-lg border transition-colors ${
-                drawMode
-                  ? "border-[var(--color-primary)] bg-[var(--color-muted)]"
-                  : "border-[var(--color-border)]"
-              }`}
-              title="Draw area"
+              onClick={handleFocusRegion}
+              className="ml-1 px-2.5 py-1 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+              title="Center and fit map to active study area"
             >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke={drawMode ? "var(--color-primary)" : "currentColor"}
-                strokeWidth="2"
-              >
-                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
               </svg>
+              Focus
             </button>
+          </div>
+
+          {/* Layer toggle — top right, above all Leaflet panes */}
+          <div className="map-controls-overlay">
+            <LayerToggleControl layers={layers} onChange={handleLayerToggle} />
           </div>
 
           {/* Legend — bottom left */}
@@ -1279,27 +1346,22 @@ export default function App() {
           {/* Attribution */}
           <div className="absolute bottom-1 right-24 z-[1000]">
             <span className="text-[10px] text-white/70 bg-black/20 px-1.5 py-0.5 rounded backdrop-blur-sm">
-              ESA Sentinel-2 · ISRO Bhuvan
+              ESA Sentinel-2 · GEDI L4A · NASADEM
             </span>
           </div>
-
-          {/* Draw mode hint */}
-          {drawMode && (
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000]">
-              <div className="bg-[var(--color-primary)] text-white text-xs font-medium px-4 py-2 rounded-full shadow-lg flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                Click on the map to select a point
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Sidebar */}
         <Sidebar
-          region={region}
+          health={health}
           selected={selected}
-          onClearSelection={() => setSelected(null)}
-          loading={loading}
+          clickLat={clickLat}
+          clickLon={clickLon}
+          selectionError={selectionError}
+          onClearSelection={handleClearSelection}
+          pointLoading={pointLoading}
+          backendStatus={backendStatus}
+          onFocusRegion={handleFocusRegion}
         />
       </div>
     </div>

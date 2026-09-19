@@ -43,8 +43,18 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Leaflet overrides */
+/* ── Leaflet overrides ────────────────────────────────────────────────────── */
+
+/*
+ * Z-INDEX FIX: Force the Leaflet container to create its own stacking context
+ * at z-index 0.  All internal Leaflet panes (tiles at z-index 200, overlays at
+ * 400–700, controls at 800+) are now scoped inside this context.  UI controls
+ * rendered outside the container — like the Layers dropdown — can simply use a
+ * modest z-index (e.g. 10) on their wrapper and still float above the map.
+ */
 .leaflet-container {
+  position: relative;
+  z-index: 0;
   background: #DCE5E9 !important;
   font-family: var(--font-body) !important;
   height: 100%;
@@ -64,6 +74,23 @@ body {
 
 .leaflet-control-zoom a:hover {
   background: var(--color-muted) !important;
+}
+
+/* ── Map controls overlay ─────────────────────────────────────────────────── */
+
+/*
+ * Wrapper for the layer toggle and other controls that sit on top of the map.
+ * Because .leaflet-container is capped at z-index 0, a z-index of 10 here
+ * is enough to float above every Leaflet pane at any zoom or pan position.
+ */
+.map-controls-overlay {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /* Custom scrollbar */
@@ -130,12 +157,33 @@ body {
     display: none;
   }
 
-  header .min-w-\[220px\] {
-    min-width: 0;
-    flex: 1;
-  }
-
   .biomass-legend {
     width: 160px;
   }
+}
+
+/* ── Study area highlight tooltips ────────────────────────────────────────── */
+.study-area-tooltip {
+  background: rgba(15, 23, 42, 0.92) !important;
+  color: #F8FAFC !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25) !important;
+  padding: 6px 10px !important;
+}
+
+.study-area-tooltip::before {
+  border-top-color: rgba(15, 23, 42, 0.92) !important;
+}
+
+.corner-tooltip {
+  background: rgba(255, 255, 255, 0.95) !important;
+  color: #065F46 !important;
+  border: 1px solid #10B981 !important;
+  border-radius: 6px !important;
+  font-size: 10px !important;
+  font-family: var(--font-mono) !important;
+  font-weight: 600 !important;
+  padding: 2px 6px !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1) !important;
 }
